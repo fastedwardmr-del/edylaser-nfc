@@ -18,9 +18,9 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanner;
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import com.google.mlkit.vision.barcode.common.Barcode;
 
 import java.net.URI;
