@@ -11,6 +11,7 @@ import android.nfc.Tag;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.NdefFormatable;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
@@ -24,7 +25,6 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import com.google.mlkit.vision.barcode.common.Barcode;
 
 import java.net.URI;
-import java.util.Arrays;
 
 public class MainActivity extends Activity {
     private NfcAdapter nfcAdapter;
@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private TextView countView;
     private String pendingUrl;
     private int count = 0;
+    private boolean writing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,6 +65,7 @@ public class MainActivity extends Activity {
     }
 
     private void startQrScanner() {
+        if (writing) return;
         try {
             GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -147,14 +149,16 @@ public class MainActivity extends Activity {
         // Forma compatible desde Android 8; evita depender de la sobrecarga añadida en Android 13.
         Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
         if (tag == null) return;
+        if (writing) return;
         if (pendingUrl == null) {
-            setError("Primero debes escanear el QR.");
+            // Ignora lecturas residuales de la placa anterior: el siguiente paso es escanear otro QR.
             return;
         }
         writeAndVerify(tag, pendingUrl);
     }
 
     private void writeAndVerify(Tag tag, String url) {
+        writing = true;
         NdefMessage message = new NdefMessage(new NdefRecord[]{NdefRecord.createUri(url)});
         try {
             Ndef ndef = Ndef.get(tag);
@@ -172,26 +176,48 @@ public class MainActivity extends Activity {
                 formatable.close();
             }
 
-            Ndef verify = Ndef.get(tag);
-            if (verify != null) {
-                verify.connect();
-                NdefMessage readBack = verify.getNdefMessage();
-                verify.close();
-                if (readBack == null || !Arrays.equals(message.toByteArray(), readBack.toByteArray()))
-                    throw new Exception("Se escribió, pero la verificación no coincidió. Repite el proceso.");
-            }
+            if (!verifyTagContent(tag, url))
+                throw new Exception("No fue posible confirmar el contenido. Mantén la placa cerca y vuelve a acercarla.");
 
             count++;
             countView.setText("Placas programadas: " + count);
-            status.setText("✓ PLACA PROGRAMADA CORRECTAMENTE");
+            status.setText("✓ PLACA PROGRAMADA\nESCANEA LA SIGUIENTE");
             status.setTextColor(Color.rgb(0, 128, 72));
             vibrate();
             Toast.makeText(this, "QR y NFC quedaron vinculados", Toast.LENGTH_LONG).show();
             pendingUrl = null;
-            findViewById(R.id.btnScan).postDelayed(this::resetForNext, 1800);
         } catch (Exception e) {
             setError("No se pudo grabar: " + e.getMessage());
+        } finally {
+            writing = false;
         }
+    }
+
+    private boolean verifyTagContent(Tag tag, String expectedUrl) {
+        // Algunos chips/teléfonos tardan unas décimas en refrescar el NDEF recién escrito.
+        for (int attempt = 0; attempt < 3; attempt++) {
+            Ndef verify = null;
+            try {
+                SystemClock.sleep(180L + (attempt * 170L));
+                verify = Ndef.get(tag);
+                if (verify == null) return false;
+                verify.connect();
+                NdefMessage readBack = verify.getNdefMessage();
+                if (readBack != null) {
+                    for (NdefRecord record : readBack.getRecords()) {
+                        android.net.Uri uri = record.toUri();
+                        if (uri != null && expectedUrl.equals(uri.toString())) return true;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Reintenta mientras la placa continúe cerca del teléfono.
+            } finally {
+                if (verify != null) {
+                    try { verify.close(); } catch (Exception ignored) { }
+                }
+            }
+        }
+        return false;
     }
 
     private void resetForNext() {
