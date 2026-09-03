@@ -8,6 +8,7 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/edylaser_icon"
         android:label="EDYLASER NFC"
         android:theme="@style/AppTheme">
         <activity
