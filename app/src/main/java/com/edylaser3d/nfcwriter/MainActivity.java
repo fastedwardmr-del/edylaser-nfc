@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
     private TextView urlView;
     private TextView countView;
     private String pendingUrl;
+    private boolean pendingIsUrl = true;
     private int count = 0;
     private boolean writing = false;
 
@@ -97,37 +98,43 @@ public class MainActivity extends Activity {
     }
 
     private void acceptQr(String value) {
-        String normalizedUrl = normalizeEdylaserUrl(value);
-        if (normalizedUrl == null) {
-            setError("QR rechazado: no corresponde a una URL de EDYLASER3D.");
-            urlView.setText(value);
+        String normalizedValue = normalizeQrValue(value);
+        if (normalizedValue == null) {
+            setError("El QR está vacío o no contiene información válida.");
             return;
         }
-        pendingUrl = normalizedUrl;
+        pendingUrl = normalizedValue;
+        pendingIsUrl = isWebUrl(normalizedValue);
         status.setText("2. ACERCA AHORA LA PLACA NFC");
         status.setTextColor(Color.rgb(22, 160, 133));
-        urlView.setText(normalizedUrl);
+        urlView.setText(normalizedValue);
     }
 
-    private String normalizeEdylaserUrl(String value) {
+    private String normalizeQrValue(String value) {
         try {
             String candidate = value.trim();
-            if (!candidate.matches("(?i)^https?://.*")) {
+            if (candidate.isEmpty()) return null;
+
+            // Un dominio sin protocolo se convierte en enlace HTTPS clicable.
+            if (!candidate.matches("(?i)^https?://.*") &&
+                    candidate.matches("(?i)^[a-z0-9.-]+\\.[a-z]{2,}([/:?#].*)?$")) {
                 candidate = "https://" + candidate;
             }
-            URI uri = URI.create(candidate);
-            String host = uri.getHost();
-            boolean allowedHost = host != null &&
-                    (host.equalsIgnoreCase("edylaser3d.com") ||
-                     host.toLowerCase().endsWith(".edylaser3d.com"));
-            if (!allowedHost || !("http".equalsIgnoreCase(uri.getScheme()) ||
-                    "https".equalsIgnoreCase(uri.getScheme()))) return null;
 
-            // Siempre se escribe HTTPS en el chip para que Android lo abra como enlace seguro.
-            return new URI("https", uri.getUserInfo(), host, uri.getPort(),
-                    uri.getPath(), uri.getQuery(), uri.getFragment()).toASCIIString();
+            if (isWebUrl(candidate)) return URI.create(candidate).toASCIIString();
+            return candidate; // Otros códigos se escriben como texto NDEF.
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    private boolean isWebUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            return uri.getHost() != null && ("http".equalsIgnoreCase(uri.getScheme()) ||
+                    "https".equalsIgnoreCase(uri.getScheme()));
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -159,7 +166,10 @@ public class MainActivity extends Activity {
 
     private void writeAndVerify(Tag tag, String url) {
         writing = true;
-        NdefMessage message = new NdefMessage(new NdefRecord[]{NdefRecord.createUri(url)});
+        NdefRecord payload = pendingIsUrl
+                ? NdefRecord.createUri(url)
+                : NdefRecord.createTextRecord("es", url);
+        NdefMessage message = new NdefMessage(new NdefRecord[]{payload});
         try {
             Ndef ndef = Ndef.get(tag);
             if (ndef != null) {
@@ -179,7 +189,7 @@ public class MainActivity extends Activity {
             // Verificación adicional de mejor esfuerzo. Si el operario retira la placa
             // justo después de escribirse, no se reporta un falso error: writeNdefMessage
             // ya confirmó que la escritura finalizó sin excepción.
-            verifyTagContent(tag, url);
+            verifyTagContent(tag, url, pendingIsUrl);
 
             count++;
             countView.setText("Placas programadas: " + count);
@@ -197,7 +207,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean verifyTagContent(Tag tag, String expectedUrl) {
+    private boolean verifyTagContent(Tag tag, String expectedValue, boolean isUrl) {
         // Algunos chips/teléfonos tardan unas décimas en refrescar el NDEF recién escrito.
         for (int attempt = 0; attempt < 2; attempt++) {
             Ndef verify = null;
@@ -209,8 +219,19 @@ public class MainActivity extends Activity {
                 NdefMessage readBack = verify.getNdefMessage();
                 if (readBack != null) {
                     for (NdefRecord record : readBack.getRecords()) {
-                        android.net.Uri uri = record.toUri();
-                        if (uri != null && expectedUrl.equals(uri.toString())) return true;
+                        if (isUrl) {
+                            android.net.Uri uri = record.toUri();
+                            if (uri != null && expectedValue.equals(uri.toString())) return true;
+                        } else if (record.getTnf() == NdefRecord.TNF_WELL_KNOWN &&
+                                java.util.Arrays.equals(record.getType(), NdefRecord.RTD_TEXT)) {
+                            byte[] data = record.getPayload();
+                            if (data.length > 0) {
+                                int languageLength = data[0] & 0x3F;
+                                String text = new String(data, 1 + languageLength,
+                                        data.length - 1 - languageLength, java.nio.charset.StandardCharsets.UTF_8);
+                                if (expectedValue.equals(text)) return true;
+                            }
+                        }
                     }
                 }
             } catch (Exception ignored) {
