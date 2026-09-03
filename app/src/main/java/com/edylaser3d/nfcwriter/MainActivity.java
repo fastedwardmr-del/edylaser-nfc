@@ -95,26 +95,37 @@ public class MainActivity extends Activity {
     }
 
     private void acceptQr(String value) {
-        if (!isAllowedEdylaserUrl(value)) {
+        String normalizedUrl = normalizeEdylaserUrl(value);
+        if (normalizedUrl == null) {
             setError("QR rechazado: no corresponde a una URL de EDYLASER3D.");
             urlView.setText(value);
             return;
         }
-        pendingUrl = value;
+        pendingUrl = normalizedUrl;
         status.setText("2. ACERCA AHORA LA PLACA NFC");
         status.setTextColor(Color.rgb(22, 160, 133));
-        urlView.setText(value);
+        urlView.setText(normalizedUrl);
     }
 
-    private boolean isAllowedEdylaserUrl(String value) {
+    private String normalizeEdylaserUrl(String value) {
         try {
-            URI uri = URI.create(value);
+            String candidate = value.trim();
+            if (!candidate.matches("(?i)^https?://.*")) {
+                candidate = "https://" + candidate;
+            }
+            URI uri = URI.create(candidate);
             String host = uri.getHost();
-            return "https".equalsIgnoreCase(uri.getScheme()) && host != null &&
+            boolean allowedHost = host != null &&
                     (host.equalsIgnoreCase("edylaser3d.com") ||
                      host.toLowerCase().endsWith(".edylaser3d.com"));
+            if (!allowedHost || !("http".equalsIgnoreCase(uri.getScheme()) ||
+                    "https".equalsIgnoreCase(uri.getScheme()))) return null;
+
+            // Siempre se escribe HTTPS en el chip para que Android lo abra como enlace seguro.
+            return new URI("https", uri.getUserInfo(), host, uri.getPort(),
+                    uri.getPath(), uri.getQuery(), uri.getFragment()).toASCIIString();
         } catch (Exception ignored) {
-            return false;
+            return null;
         }
     }
 
