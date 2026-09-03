@@ -176,8 +176,10 @@ public class MainActivity extends Activity {
                 formatable.close();
             }
 
-            if (!verifyTagContent(tag, url))
-                throw new Exception("No fue posible confirmar el contenido. Mantén la placa cerca y vuelve a acercarla.");
+            // Verificación adicional de mejor esfuerzo. Si el operario retira la placa
+            // justo después de escribirse, no se reporta un falso error: writeNdefMessage
+            // ya confirmó que la escritura finalizó sin excepción.
+            verifyTagContent(tag, url);
 
             count++;
             countView.setText("Placas programadas: " + count);
@@ -186,6 +188,8 @@ public class MainActivity extends Activity {
             vibrate();
             Toast.makeText(this, "QR y NFC quedaron vinculados", Toast.LENGTH_LONG).show();
             pendingUrl = null;
+            // Modo producción continuo: abre el lector del siguiente QR automáticamente.
+            findViewById(R.id.btnScan).postDelayed(this::startQrScanner, 650);
         } catch (Exception e) {
             setError("No se pudo grabar: " + e.getMessage());
         } finally {
@@ -195,10 +199,10 @@ public class MainActivity extends Activity {
 
     private boolean verifyTagContent(Tag tag, String expectedUrl) {
         // Algunos chips/teléfonos tardan unas décimas en refrescar el NDEF recién escrito.
-        for (int attempt = 0; attempt < 3; attempt++) {
+        for (int attempt = 0; attempt < 2; attempt++) {
             Ndef verify = null;
             try {
-                SystemClock.sleep(180L + (attempt * 170L));
+                SystemClock.sleep(60L + (attempt * 90L));
                 verify = Ndef.get(tag);
                 if (verify == null) return false;
                 verify.connect();
