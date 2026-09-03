@@ -18,8 +18,10 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.google.zxing.integration.android.IntentIntegrator;
-import com.google.zxing.integration.android.IntentResult;
+import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning;
+import com.google.mlkit.vision.barcode.common.Barcode;
 
 import java.net.URI;
 import java.util.Arrays;
@@ -62,22 +64,34 @@ public class MainActivity extends Activity {
     }
 
     private void startQrScanner() {
-        IntentIntegrator integrator = new IntentIntegrator(this);
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
-        integrator.setPrompt("Enfoca el QR de la placa");
-        integrator.setBeepEnabled(true);
-        integrator.setOrientationLocked(true);
-        integrator.initiateScan();
+        try {
+            GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                    .enableAutoZoom()
+                    .build();
+            GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(this, options);
+            status.setText("Abriendo cámara…");
+            scanner.startScan()
+                    .addOnSuccessListener(barcode -> {
+                        String value = barcode.getRawValue();
+                        if (value == null || value.trim().isEmpty()) {
+                            setError("El QR no contiene información legible.");
+                        } else {
+                            acceptQr(value.trim());
+                        }
+                    })
+                    .addOnCanceledListener(this::resetForNext)
+                    .addOnFailureListener(error ->
+                            setError("No se pudo abrir el escáner: " + safeMessage(error)));
+        } catch (Exception error) {
+            setError("Error al iniciar la cámara: " + safeMessage(error));
+        }
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        IntentResult result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
-        if (result != null) {
-            if (result.getContents() != null) acceptQr(result.getContents().trim());
-            return;
-        }
-        super.onActivityResult(requestCode, resultCode, data);
+    private String safeMessage(Exception error) {
+        String message = error.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? error.getClass().getSimpleName() : message;
     }
 
     private void acceptQr(String value) {
