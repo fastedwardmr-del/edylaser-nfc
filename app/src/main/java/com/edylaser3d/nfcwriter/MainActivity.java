@@ -207,8 +207,13 @@ public class MainActivity extends Activity {
     }
 
     private void vibrate() {
-        Vibrator vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-        if (vibrator != null && vibrator.hasVibrator())
-            vibrator.vibrate(VibrationEffect.createOneShot(350, VibrationEffect.DEFAULT_AMPLITUDE));
+        try {
+            Vibrator vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            if (vibrator != null && vibrator.hasVibrator())
+                vibrator.vibrate(VibrationEffect.createOneShot(350, VibrationEffect.DEFAULT_AMPLITUDE));
+        } catch (Exception ignored) {
+            // La vibración es solo confirmación táctil; jamás debe convertir
+            // una escritura NFC exitosa en un mensaje de error.
+        }
     }
 }
